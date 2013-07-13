@@ -58,7 +58,9 @@ class DepGraph(object):
 			if not dtype in self.deptypes:
 				continue
 			for ordep in deps:
-				ret.append(self._ordeps(ordep))
+				alt = self._ordeps(ordep)
+				if alt:
+					ret.append(alt)
 		return ret
 	
 	def _ordeps(self, ds):
@@ -69,6 +71,10 @@ class DepGraph(object):
 		seen = set()
 		return [self.by_id(a) for a in alt
 			if a not in seen and not seen.add(a)]
+	
+	def orphans(self):
+		return [p for p in self.packages.itervalues()
+			if not p.rdeps]
 
 class Cache(object):
 	def __init__(self):
@@ -90,7 +96,7 @@ class Cache(object):
 
 if __name__ == "__main__":
 	cache = Cache()
-	graph = DepGraph(cache)
-	deps = graph.packages[sys.argv[1]].rec_deps()
-	for d in sorted(p.name() for p in deps):
+	graph = DepGraph(cache, ['Depends', 'PreDepends', 'Recommends'])
+	pkgs = graph.orphans()
+	for d in sorted(p.name() for p in pkgs):
 		print d
