@@ -1,10 +1,82 @@
 #!/usr/bin/env python
 import apt_pkg
+import sys
 
-class DebSizes(object):
+class DepGraph(object):
+	class Package(object):
+		def __init__(self, graph, pkg):
+			self.graph = graph
+			self.vers = pkg.current_ver
+			self.deps = []
+			self.rdeps = []
+			self.rsoft = []
+		
+		def name(self):
+			return self.vers.parent_pkg.get_fullname(pretty = True)
+		
+		def rec_deps(self, soft = False):
+			todo = [self]
+			seen = set()
+			while todo:
+				p = todo.pop()
+				if p.vers.id in seen:
+					continue
+				seen.add(p.vers.id)
+				
+				for ds in p.deps:
+					dwant = ds if soft else [ds[0]]
+					for d in dwant:
+						todo.append(d)
+			return [self.graph.by_id(i) for i in seen]
+		
+	def __init__(self, cache, deptypes = {'Depends', 'PreDepends'}):
+		self.cache = cache
+		self.deptypes = deptypes
+		
+		self.packages = dict()
+		for p in cache.installed():
+			pkg = DepGraph.Package(self, p)
+			self.packages[pkg.name()] = pkg
+		self.id2pkg = {p.vers.id: p
+			for p in self.packages.itervalues()}
+		
+		for p in self.packages.itervalues():
+			p.deps = self._deps(p.vers)
+			for ds in p.deps:
+				ds[0].rdeps.append(p)
+				for d in ds:
+					d.rsoft.append(p)
+	
+	def by_id(self, i):
+		return self.id2pkg[i]
+	def by_vers(self, v):
+		return self.by_id(v.id)
+	
+	def _deps(self, v):
+		ret = []
+		for dtype, deps in v.depends_list.iteritems():
+			if not dtype in self.deptypes:
+				continue
+			for ordep in deps:
+				ret.append(self._ordeps(ordep))
+		return ret
+	
+	def _ordeps(self, ds):
+		alt = []
+		for d in ds:
+			alt.extend(v.id for v in d.all_targets()
+				if v.id in self.id2pkg)
+		seen = set()
+		return [self.by_id(a) for a in alt
+			if a not in seen and not seen.add(a)]
+
+class Cache(object):
 	def __init__(self):
 		apt_pkg.init()
 		self.cache = apt_pkg.Cache(progress = None)
+	
+	def inst_vers(self, name):
+		return self.cache[name].current_ver
 	
 	def installed(self):
 		return [p for p in self.cache.packages
@@ -15,8 +87,10 @@ class DebSizes(object):
 		return [p for p in self.installed()
 			if not dcache.is_auto_installed(p)]
 
+
 if __name__ == "__main__":
-	ds = DebSizes()
-	keepers = [p.get_fullname(pretty = True) for p in ds.keepers()]
-	for k in sorted(keepers):
-		print k
+	cache = Cache()
+	graph = DepGraph(cache)
+	deps = graph.packages[sys.argv[1]].rec_deps()
+	for d in sorted(p.name() for p in deps):
+		print d
