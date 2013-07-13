@@ -1,0 +1,22 @@
+#!/usr/bin/env python
+import apt_pkg
+
+class DebSizes(object):
+	def __init__(self):
+		apt_pkg.init()
+		self.cache = apt_pkg.Cache(progress = None)
+	
+	def installed(self):
+		return [p for p in self.cache.packages
+			if p.current_state == apt_pkg.CURSTATE_INSTALLED]
+	
+	def keepers(self):
+		dcache = apt_pkg.DepCache(self.cache)
+		return [p for p in self.installed()
+			if not dcache.is_auto_installed(p)]
+
+if __name__ == "__main__":
+	ds = DebSizes()
+	keepers = [p.get_fullname(pretty = True) for p in ds.keepers()]
+	for k in sorted(keepers):
+		print k
