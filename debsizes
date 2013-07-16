@@ -2,6 +2,7 @@
 import apt_pkg
 import sys
 import os
+import math
 
 # Utility wrapper over apt_pkg.Cache
 class Cache(object):
@@ -168,6 +169,26 @@ class DebSizer(object):
 				r.add(d)
 			ret.append(r)
 		return ret
+	
+	def format(self, size, space = 5):
+		bases = "BKMGT"
+		bi = int(math.log(max(size, 1), 1000))
+		bspace = max(min(space - 3, 3), 1)
+		b = bases[bi]
+		if bspace >= 3:
+			b = (b + "B") if bi > 0 else " B"
+		if bspace >= 2:
+			b = " " + b
+		
+		space -= bspace
+		mant = size / 1000**bi
+		dlen = space - len(str(int(mant))) - 1
+		if dlen >= 1 and mant != int(mant):
+			d = "%*.*f" % (space, dlen, mant)
+		else:
+			d = "%*d" % (space, mant)
+		
+		return d + b
 
 if __name__ == "__main__":
 	cache = Cache()
@@ -177,4 +198,4 @@ if __name__ == "__main__":
 	roots = sizer.sizes()
 	roots.sort(key = lambda r: r.size(), reverse = True)
 	for r in roots:
-		print "%12d  %s" % (r.size(), r.name)
+		print "%s  %s" % (sizer.format(r.size()), r.name)
