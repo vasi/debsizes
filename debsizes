@@ -138,13 +138,17 @@ class DebSizer(object):
 			return self.vers.__hash__()
 		def __eq__(self, other):
 			return self.vers == other.vers
+		def desc(self):
+			return self.name
 	class Dependency(Package):
 		def __init__(self, pkg):
 			super(DebSizer.Dependency, self).__init__(pkg)
 			self.size = self.vers.vers.installed_size
 			self.portions = 0
-		def share(self):
-			return self.size / self.portions		
+		def used(self):
+			return self.size / self.portions
+		def desc(self):
+			return "%2d %s" % (self.portions, self.name)
 	class Root(Package):
 		def __init__(self, pkg):
 			super(DebSizer.Root, self).__init__(pkg)
@@ -152,8 +156,8 @@ class DebSizer(object):
 		def add(self, dep):
 			dep.portions += 1
 			self.deps.append(dep)
-		def size(self):
-			return sum(d.share() for d in self.deps)
+		def used(self):
+			return sum(d.used() for d in self.deps)
 	
 	def sizes(self):
 		bset = set()
@@ -170,36 +174,40 @@ class DebSizer(object):
 			ret.append(r)
 		return ret
 	
-	def format(self, size, space = 5):
-		bases = "BKMGT"
-		bi = int(math.log(max(size, 1), 1000))
-		bspace = max(min(space - 3, 3), 1)
-		b = bases[bi]
-		if bspace >= 3:
-			b = (b + "B") if bi > 0 else " B"
-		if bspace >= 2:
-			b = " " + b
-		
-		space -= bspace
-		mant = size / 1000**bi
-		dlen = space - len(str(int(mant))) - 1
-		if dlen >= 1 and mant != int(mant):
-			d = "%*.*f" % (space, dlen, mant)
-		else:
-			d = "%*d" % (space, mant)
-		
-		return d + b
+def format_size(size, space = 5):
+	bases = "BKMGT"
+	bi = int(math.log(max(size, 1), 1000))
+	bspace = max(min(space - 3, 3), 1)
+	b = bases[bi]
+	if bspace >= 3:
+		b = (b + "B") if bi > 0 else " B"
+	if bspace >= 2:
+		b = " " + b
 	
-	def print_roots(self, roots):
-		roots = [r for r in roots if r.size() > 0]
-		roots.sort(key = lambda r: r.size(), reverse = True)
-		for r in roots:
-			print "%s  %s" % (sizer.format(r.size()), r.name)
+	space -= bspace
+	mant = size / 1000**bi
+	dlen = space - len(str(int(mant))) - 1
+	if dlen >= 1 and mant != int(mant):
+		d = "%*.*f" % (space, dlen, mant)
+	else:
+		d = "%*d" % (space, mant)
+	
+	return d + b
+
+def print_sizes(siz):
+	siz.sort(key = lambda s: s.used(), reverse = True)
+	for s in siz:
+		if s.used() > 0:
+			print "%s  %s" % (format_size(s.used()), s.desc())
 
 if __name__ == "__main__":
 	cache = Cache()
 	graph = DepGraph(cache)
 	sizer = DebSizer(graph, graph.keepers())
 	sizer.base = graph.read_packages("~/Keepers/system")
-	roots = sizer.sizes()
-	sizer.print_roots(roots)
+	
+	out = sizer.sizes()
+	if len(sys.argv) >= 2:
+		target = sys.argv[1]
+		out = next(r for r in out if r.name == target).deps
+	print_sizes(out)
