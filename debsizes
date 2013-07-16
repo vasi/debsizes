@@ -3,6 +3,7 @@ import apt_pkg
 import sys
 import os
 import math
+import signal
 
 # Utility wrapper over apt_pkg.Cache
 class Cache(object):
@@ -120,7 +121,7 @@ class DepGraph(object):
 			for p in self.cache.keepers()]
 	def read_packages(self, path):
 		path = os.path.expanduser(path)
-		if not os.exists(path):
+		if not os.path.exists(path):
 			return []
 		with open(path) as f:
 			names = [n.rstrip("\n") for n in f]
@@ -203,6 +204,8 @@ def print_sizes(siz):
 			print "%s  %s" % (format_size(s.used()), s.desc())
 
 if __name__ == "__main__":
+	signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+	
 	cache = Cache()
 	graph = DepGraph(cache)
 	sizer = DebSizer(graph, graph.keepers())
