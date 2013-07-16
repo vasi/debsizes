@@ -1,8 +1,13 @@
 #!/usr/bin/env python
 import apt_pkg
 import sys
+from collections import namedtuple
 
 class DepGraph(object):
+	DepTypesDepends = {'Depends', 'PreDepends'}
+	DepTypesDefault = DepTypesDepends | {'Recommends'}
+	DepTypesSuggests = DepTypesDefault | {'Suggests'}
+	
 	class Package(object):
 		def __init__(self, graph, pkg):
 			self.graph = graph
@@ -29,7 +34,7 @@ class DepGraph(object):
 						todo.append(d)
 			return [self.graph.by_id(i) for i in seen]
 		
-	def __init__(self, cache, deptypes = {'Depends', 'PreDepends'}):
+	def __init__(self, cache, deptypes = DepTypesDefault):
 		self.cache = cache
 		self.deptypes = deptypes
 		
@@ -75,6 +80,9 @@ class DepGraph(object):
 	def orphans(self):
 		return [p for p in self.packages.itervalues()
 			if not p.rdeps]
+	def keepers(self):
+		return [self.by_vers(p.current_ver)
+			for p in self.cache.keepers()]
 
 class Cache(object):
 	def __init__(self):
@@ -94,9 +102,43 @@ class Cache(object):
 			if not dcache.is_auto_installed(p)]
 
 
+class DebSizer(object):
+	def __init__(self, graph, roots = None):
+		self.graph = graph
+		self.base = []
+		self.roots = roots or []
+	
+	Size = namedtuple('Size', 'package size')
+	def sizes(self):
+		rlist = list(self.roots)
+		rsets = [p.rec_deps() for p in rlist]
+		
+		bset = set()
+		for b in self.base:
+			bset |= {d.vers.id for d in b.rec_deps()}
+
+		counts = {}
+		for rset in rsets:
+			for i in (p.vers.id for p in rset):
+				counts[i] = counts.get(i, 0) + 1
+		
+		rsize = []
+		for rset in rsets:
+			s = 0
+			for r in rset:
+				if r.vers.id not in bset:
+					s += r.vers.installed_size / counts[r.vers.id]
+			rsize.append(s)
+		
+		return [DebSizer.Size(r, rsize[i])
+			for i, r in enumerate(rlist)]
+
 if __name__ == "__main__":
 	cache = Cache()
-	graph = DepGraph(cache, ['Depends', 'PreDepends', 'Recommends'])
-	pkgs = graph.orphans()
-	for d in sorted(p.name() for p in pkgs):
-		print d
+	graph = DepGraph(cache)
+	sizer = DebSizer(graph, graph.keepers())
+	sizer.base = [graph.packages['ubuntu-gnome-desktop']]
+	sizes = sizer.sizes()
+	sizes.sort(key = lambda x: x.size, reverse = True)
+	for s in sizes:
+		print "%12d  %s" % (s.size, s.package.name())
