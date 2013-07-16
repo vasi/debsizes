@@ -189,6 +189,12 @@ class DebSizer(object):
 			d = "%*d" % (space, mant)
 		
 		return d + b
+	
+	def print_roots(self, roots):
+		roots = [r for r in roots if r.size() > 0]
+		roots.sort(key = lambda r: r.size(), reverse = True)
+		for r in roots:
+			print "%s  %s" % (sizer.format(r.size()), r.name)
 
 if __name__ == "__main__":
 	cache = Cache()
@@ -196,7 +202,4 @@ if __name__ == "__main__":
 	sizer = DebSizer(graph, graph.keepers())
 	sizer.base = graph.read_packages("~/Keepers/system")
 	roots = sizer.sizes()
-	roots.sort(key = lambda r: r.size(), reverse = True)
-	for r in roots:
-		if r.size() > 0:
-			print "%s  %s" % (sizer.format(r.size()), r.name)
+	sizer.print_roots(roots)
