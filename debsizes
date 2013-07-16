@@ -120,6 +120,8 @@ class DepGraph(object):
 			for p in self.cache.keepers()]
 	def read_packages(self, path):
 		path = os.path.expanduser(path)
+		if not os.exists(path):
+			return []
 		with open(path) as f:
 			names = [n.rstrip("\n") for n in f]
 			return [self.packages[n] for n in names]
