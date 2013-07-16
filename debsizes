@@ -128,10 +128,11 @@ class DepGraph(object):
 			return [self.packages[n] for n in names]
 
 class DebSizer(object):
-	def __init__(self, graph, roots = None):
+	def __init__(self, graph, scale = 1.0, roots = None):
 		self.graph = graph
 		self.base = []
 		self.roots = roots or []
+		self.scale = scale
 	
 	class Package(object):
 		def __init__(self, pkg):
@@ -144,12 +145,13 @@ class DebSizer(object):
 		def desc(self):
 			return self.name
 	class Dependency(Package):
-		def __init__(self, pkg):
+		def __init__(self, pkg, scale):
 			super(DebSizer.Dependency, self).__init__(pkg)
 			self.size = self.vers.vers.installed_size
 			self.portions = 0
+			self.scale = scale
 		def used(self):
-			return self.size / self.portions
+			return self.size / (self.portions ** 2)
 		def desc(self):
 			return "%2d %s" % (self.portions, self.name)
 	class Root(Package):
@@ -172,7 +174,8 @@ class DebSizer(object):
 		for rv in self.roots:
 			r = DebSizer.Root(rv)
 			for dv in rv.rec_deps() - bset:
-				d = deps.setdefault(dv, DebSizer.Dependency(dv))
+				d = deps.setdefault(dv,
+					DebSizer.Dependency(dv, self.scale))
 				r.add(d)
 			ret.append(r)
 		return ret
@@ -208,7 +211,7 @@ if __name__ == "__main__":
 	
 	cache = Cache()
 	graph = DepGraph(cache)
-	sizer = DebSizer(graph, graph.keepers())
+	sizer = DebSizer(graph, scale = 2.0, roots = graph.keepers())
 	sizer.base = graph.read_packages("~/Keepers/system")
 	
 	out = sizer.sizes()
