@@ -3,36 +3,65 @@ import apt_pkg
 import sys
 from collections import namedtuple
 
+# Utility wrapper over apt_pkg.Cache
+class Cache(object):
+	def __init__(self):
+		apt_pkg.init()
+		self.cache = apt_pkg.Cache(progress = None)
+	
+	# Get the installed Version of a package
+	def inst_vers(self, name):
+		return self.cache[name].current_ver
+	
+	# List all installed Packages
+	def installed(self):
+		return [p for p in self.cache.packages
+			if p.current_state == apt_pkg.CURSTATE_INSTALLED]
+	
+	# List manually installed Packages
+	def keepers(self):
+		dcache = apt_pkg.DepCache(self.cache)
+		return [p for p in self.installed()
+			if not dcache.is_auto_installed(p)]
+
+# Dependency graph of packages
 class DepGraph(object):
 	DepTypesDepends = {'Depends', 'PreDepends'}
 	DepTypesDefault = DepTypesDepends | {'Recommends'}
 	DepTypesSuggests = DepTypesDefault | {'Suggests'}
 	
 	class Package(object):
-		def __init__(self, graph, pkg):
-			self.graph = graph
+		def __init__(self, pkg):
 			self.vers = pkg.current_ver
+			self.name = self.vers.parent_pkg.get_fullname(pretty = True)
+			
+			# Two-level array, groups of alternatives
+			# eg: "foo | bar, qux" -> [[foo, bar], [qux]]
 			self.deps = []
-			self.rdeps = []
-			self.rsoft = []
+			
+			self.rdeps = [] # Reverse deps, one alternative per group
+			self.rsoft = [] # Includes very alternative
 		
-		def name(self):
-			return self.vers.parent_pkg.get_fullname(pretty = True)
+		def __hash__(self):
+			return self.vers.id
+		def __eq__(self, other):
+			return self.__hash__() == other.__hash__()
 		
+		# Get recursive dependencies
 		def rec_deps(self, soft = False):
 			todo = [self]
-			seen = set()
+			ret = set()
 			while todo:
 				p = todo.pop()
-				if p.vers.id in seen:
+				if p in ret:
 					continue
-				seen.add(p.vers.id)
+				ret.add(p)
 				
 				for ds in p.deps:
 					dwant = ds if soft else [ds[0]]
 					for d in dwant:
 						todo.append(d)
-			return [self.graph.by_id(i) for i in seen]
+			return ret
 		
 	def __init__(self, cache, deptypes = DepTypesDefault):
 		self.cache = cache
@@ -40,11 +69,12 @@ class DepGraph(object):
 		
 		self.packages = dict()
 		for p in cache.installed():
-			pkg = DepGraph.Package(self, p)
-			self.packages[pkg.name()] = pkg
+			pkg = DepGraph.Package(p)
+			self.packages[pkg.name] = pkg
 		self.id2pkg = {p.vers.id: p
 			for p in self.packages.itervalues()}
 		
+		# Fill in dependencies
 		for p in self.packages.itervalues():
 			p.deps = self._deps(p.vers)
 			for ds in p.deps:
@@ -57,6 +87,7 @@ class DepGraph(object):
 	def by_vers(self, v):
 		return self.by_id(v.id)
 	
+	# Calculate the dependency sets for a package
 	def _deps(self, v):
 		ret = []
 		for dtype, deps in v.depends_list.iteritems():
@@ -67,15 +98,18 @@ class DepGraph(object):
 				if alt:
 					ret.append(alt)
 		return ret
-	
 	def _ordeps(self, ds):
 		alt = []
-		for d in ds:
-			alt.extend(v.id for v in d.all_targets()
-				if v.id in self.id2pkg)
 		seen = set()
-		return [self.by_id(a) for a in alt
-			if a not in seen and not seen.add(a)]
+		for d in ds:
+			for v in reversed(d.all_targets()):
+				if v.id not in self.id2pkg:
+					continue
+				p = self.by_vers(v)
+				if p not in seen:
+					alt.append(p)
+					seen.add(p)
+		return alt
 	
 	def orphans(self):
 		return [p for p in self.packages.itervalues()
@@ -83,24 +117,6 @@ class DepGraph(object):
 	def keepers(self):
 		return [self.by_vers(p.current_ver)
 			for p in self.cache.keepers()]
-
-class Cache(object):
-	def __init__(self):
-		apt_pkg.init()
-		self.cache = apt_pkg.Cache(progress = None)
-	
-	def inst_vers(self, name):
-		return self.cache[name].current_ver
-	
-	def installed(self):
-		return [p for p in self.cache.packages
-			if p.current_state == apt_pkg.CURSTATE_INSTALLED]
-	
-	def keepers(self):
-		dcache = apt_pkg.DepCache(self.cache)
-		return [p for p in self.installed()
-			if not dcache.is_auto_installed(p)]
-
 
 class DebSizer(object):
 	def __init__(self, graph, roots = None):
@@ -141,4 +157,4 @@ if __name__ == "__main__":
 	sizes = sizer.sizes()
 	sizes.sort(key = lambda x: x.size, reverse = True)
 	for s in sizes:
-		print "%12d  %s" % (s.size, s.package.name())
+		print "%12d  %s" % (s.size, s.package.name)
