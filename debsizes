@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import apt_pkg
 import sys
-from collections import namedtuple
+import collections
 
 # Utility wrapper over apt_pkg.Cache
 class Cache(object):
@@ -103,7 +103,7 @@ class DepGraph(object):
 		seen = set()
 		for d in ds:
 			for v in reversed(d.all_targets()):
-				if v.id not in self.id2pkg:
+				if v.id not in self.id2pkg: # Check it's installed
 					continue
 				p = self.by_vers(v)
 				if p not in seen:
@@ -124,37 +124,52 @@ class DebSizer(object):
 		self.base = []
 		self.roots = roots or []
 	
-	Size = namedtuple('Size', 'package size')
+	class Package(object):
+		def __init__(self, pkg):
+			self.vers = pkg
+			self.name = pkg.name
+		def __hash__(self):
+			return self.vers.__hash__()
+		def __eq__(self, other):
+			return self.vers == other.vers
+	class Dependency(Package):
+		def __init__(self, pkg):
+			super(DebSizer.Dependency, self).__init__(pkg)
+			self.size = self.vers.vers.installed_size
+			self.portions = 0
+		def share(self):
+			return self.size / self.portions		
+	class Root(Package):
+		def __init__(self, pkg):
+			super(DebSizer.Root, self).__init__(pkg)
+			self.deps = []
+		def add(self, dep):
+			dep.portions += 1
+			self.deps.append(dep)
+		def size(self):
+			return sum(d.share() for d in self.deps)
+	
 	def sizes(self):
-		rlist = list(self.roots)
-		rsets = [p.rec_deps() for p in rlist]
-		
 		bset = set()
 		for b in self.base:
 			bset |= {d.vers.id for d in b.rec_deps()}
-
-		counts = {}
-		for rset in rsets:
-			for i in (p.vers.id for p in rset):
-				counts[i] = counts.get(i, 0) + 1
 		
-		rsize = []
-		for rset in rsets:
-			s = 0
-			for r in rset:
-				if r.vers.id not in bset:
-					s += r.vers.installed_size / counts[r.vers.id]
-			rsize.append(s)
-		
-		return [DebSizer.Size(r, rsize[i])
-			for i, r in enumerate(rlist)]
+		ret = []
+		deps = {}
+		for rv in self.roots:
+			r = DebSizer.Root(rv)
+			for dv in rv.rec_deps() - bset:
+				d = deps.setdefault(dv, DebSizer.Dependency(dv))
+				r.add(d)
+			ret.append(r)
+		return ret
 
 if __name__ == "__main__":
 	cache = Cache()
 	graph = DepGraph(cache)
 	sizer = DebSizer(graph, graph.keepers())
 	sizer.base = [graph.packages['ubuntu-gnome-desktop']]
-	sizes = sizer.sizes()
-	sizes.sort(key = lambda x: x.size, reverse = True)
-	for s in sizes:
-		print "%12d  %s" % (s.size, s.package.name)
+	roots = sizer.sizes()
+	roots.sort(key = lambda r: r.size(), reverse = True)
+	for r in roots:
+		print "%12d  %s" % (r.size(), r.name)
