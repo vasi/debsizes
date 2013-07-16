@@ -198,4 +198,5 @@ if __name__ == "__main__":
 	roots = sizer.sizes()
 	roots.sort(key = lambda r: r.size(), reverse = True)
 	for r in roots:
-		print "%s  %s" % (sizer.format(r.size()), r.name)
+		if r.size() > 0:
+			print "%s  %s" % (sizer.format(r.size()), r.name)
